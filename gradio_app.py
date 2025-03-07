@@ -237,14 +237,12 @@ def save_manual_outline(manual_outline):
     except Exception as e:
         return gr.Warning(f"Error saving outline: {str(e)}"), "", state["current_step"]
 
-def generate_slides(style_template, use_ai=True, selected_model=None):
+def generate_slides(style_template):
     """
-    Generate slides from the outline with optional AI enhancement
+    Generate slides from the outline with AI enhancement
     
     Args:
         style_template: The style template to use
-        use_ai: Whether to use AI to enhance the slide content
-        selected_model: The AI model to use for enhancement (if use_ai is True)
     """
     logging.info(f"Generating slides with style template: {style_template}")
     
@@ -252,22 +250,21 @@ def generate_slides(style_template, use_ai=True, selected_model=None):
         return None, "Please create an outline first", state["current_step"]
     
     try:
-        # Get the selected model
-        if use_ai and not selected_model:
-            selected_model = state.get("selected_model")
-            if not selected_model:
-                # Default to first available model
-                models = list(state.get("brainstorming_results", {}).keys())
-                if models:
-                    selected_model = models[0]
-                else:
-                    selected_model = "gpt4"  # Default fallback
+        # Get the selected model from state
+        selected_model = state.get("selected_model")
+        if not selected_model:
+            # Default to first available model
+            models = list(state.get("brainstorming_results", {}).keys())
+            if models:
+                selected_model = models[0]
+            else:
+                selected_model = "gpt4"  # Default fallback
         
         # Generate slides
         result = workflow_engine.generate_slide_deck(
             style_template=style_template,
-            use_ai=use_ai,
-            model_id=selected_model if use_ai else None
+            use_ai=True,  # Always use AI enhancement
+            model_id=selected_model
         )
         
         if result.get("status") == "success":
@@ -508,15 +505,6 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent"
                         label="Style Template"
                     )
                     
-                    with gr.Row():
-                        use_ai = gr.Checkbox(value=True, label="Use AI to enhance slides")
-                        selected_model = gr.Dropdown(
-                            choices=[], 
-                            label="AI Model",
-                            interactive=True,
-                            visible=True
-                        )
-                    
                     generate_slides_btn = gr.Button("Generate Slides", variant="primary")
                     slides_error = gr.Textbox(label="Errors", visible=False)
             
@@ -573,14 +561,8 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent"
     
     generate_slides_btn.click(
         generate_slides,
-        inputs=[style_template, use_ai, selected_model],
+        inputs=[style_template],
         outputs=[slides_output, slides_error, current_step_info]
-    )
-    
-    use_ai.change(
-        fn=lambda use_ai: gr.update(visible=use_ai),
-        inputs=[use_ai],
-        outputs=[selected_model]
     )
     
     export_btn.click(
