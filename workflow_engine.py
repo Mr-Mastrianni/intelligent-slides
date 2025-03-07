@@ -50,7 +50,9 @@ class WorkflowEngine:
             "outline": {},
             "slides": [],
             "formatting": {},
-            "images": {},
+            "images": {
+                "thumbnail": None
+            }
         }
         
         logger.info(f"Created new project: {title} (ID: {project_id})")
@@ -501,6 +503,10 @@ Only provide the 5 points in the exact format requested, nothing else.
         if not self.current_project:
             return {"status": "error", "message": "No active project"}
         
+        # Initialize images dictionary if it doesn't exist
+        if "images" not in self.current_project:
+            self.current_project["images"] = {"thumbnail": None}
+        
         # Get the project title and outline if available
         title = self.current_project["title"]
         outline_content = self.current_project.get("outline", {}).get("content", "")
@@ -518,6 +524,19 @@ The presentation covers:
 
 The image should be modern, clean, and suitable for a business or academic context.
 Use a color scheme that conveys professionalism and innovation.
+
+ABSOLUTELY NO TEXT: This is a strict requirement. The image must not contain any text, words, letters, numbers, or characters of any kind. No captions, no labels, no titles, no subtitles. The image must be 100% text-free.
+
+This is the most important requirement: DO NOT include any text whatsoever in the generated image. The image should only contain visual elements, not textual elements.
+"""
+        else:
+            # If a custom prompt is provided, append the no-text requirement
+            if "ABSOLUTELY NO TEXT" not in prompt:
+                prompt += """
+
+ABSOLUTELY NO TEXT: This is a strict requirement. The image must not contain any text, words, letters, numbers, or characters of any kind. No captions, no labels, no titles, no subtitles. The image must be 100% text-free.
+
+This is the most important requirement: DO NOT include any text whatsoever in the generated image. The image should only contain visual elements, not textual elements.
 """
         
         try:
@@ -525,15 +544,15 @@ Use a color scheme that conveys professionalism and innovation.
             image_result = self.image_generator.generate_image(prompt)
             
             # Check for errors
-            if image_result.get("status") == "error":
+            if "error" in image_result:
                 return {
                     "status": "error",
-                    "message": f"Failed to generate thumbnail: {image_result.get('message')}"
+                    "message": f"Failed to generate thumbnail: {image_result.get('error')}"
                 }
             
             # Store in the project
             self.current_project["images"]["thumbnail"] = {
-                "url": image_result.get("image_url"),
+                "url": image_result.get("url"),
                 "prompt": prompt,
                 "revised_prompt": image_result.get("revised_prompt"),
                 "timestamp": datetime.now().isoformat()
@@ -542,7 +561,7 @@ Use a color scheme that conveys professionalism and innovation.
             
             return {
                 "status": "success",
-                "url": image_result.get("image_url"),
+                "url": image_result.get("url"),
                 "revised_prompt": image_result.get("revised_prompt")
             }
         except Exception as e:

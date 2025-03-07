@@ -29,7 +29,9 @@ state = {
     "style_template": None,
     "export_result": None,
     "export_path": None,
-    "selected_assumptions": []
+    "selected_assumptions": [],
+    "thumbnail_url": None,
+    "thumbnail_prompt": None
 }
 
 # Define example assumptions
@@ -417,6 +419,28 @@ def update_model_dropdown(brainstorming_models):
         return gr.update(choices=[], value=None)
     return gr.update(choices=brainstorming_models, value=brainstorming_models[0])
 
+def generate_thumbnail(custom_prompt=None):
+    """Generate a thumbnail image for the presentation using DALL-E."""
+    if not state.get("outline"):
+        return None, "Please create an outline first", state["current_step"]
+    
+    try:
+        # Call workflow engine to generate thumbnail
+        result = workflow_engine.generate_thumbnail(prompt=custom_prompt)
+        
+        if result.get("status") == "success":
+            # Store thumbnail URL in state
+            state["thumbnail_url"] = result.get("url")
+            state["thumbnail_prompt"] = result.get("revised_prompt") or custom_prompt
+            
+            return result.get("url"), f"✅ Thumbnail generated successfully!", state["current_step"]
+        else:
+            return None, f"❌ Error generating thumbnail: {result.get('message', 'Unknown error')}", state["current_step"]
+    
+    except Exception as e:
+        logging.exception(f"Error in generate_thumbnail: {str(e)}")
+        return None, f"Error generating thumbnail: {str(e)}", state["current_step"]
+
 # Create the Gradio interface
 with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent") as app:
     gr.Markdown("# Content Workflow Automation Agent")
@@ -563,6 +587,24 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent"
                             export_result = gr.Textbox(label="Export Result", interactive=False)
                             export_file_path = gr.Textbox(label="File Path", visible=False)
                             open_browser_btn = gr.Button("Open in Browser", visible=False)
+                
+                with gr.TabItem("Generate Thumbnail"):
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            gr.Markdown("### Generate Presentation Thumbnail")
+                            gr.Markdown("Create a professional thumbnail image for your presentation using DALL-E. The generated image will be completely text-free for optimal visual impact.")
+                            
+                            custom_prompt = gr.Textbox(
+                                label="Custom Prompt (Optional)",
+                                placeholder="Enter a custom prompt for the thumbnail image, or leave blank to use the default prompt. Note: All images will be generated without text.",
+                                lines=4
+                            )
+                            
+                            generate_thumbnail_btn = gr.Button("Generate Thumbnail", variant="primary", size="lg")
+                        
+                        with gr.Column(scale=2):
+                            thumbnail_image = gr.Image(label="Generated Thumbnail", interactive=False)
+                            thumbnail_status = gr.Textbox(label="Status", interactive=False)
     
     # Set up event handlers
     create_project_btn.click(
@@ -599,6 +641,12 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent"
         generate_slides,
         inputs=[style_template],
         outputs=[slides_output, slides_error, current_step_info]
+    )
+    
+    generate_thumbnail_btn.click(
+        generate_thumbnail,
+        inputs=[custom_prompt],
+        outputs=[thumbnail_image, thumbnail_status, current_step_info]
     )
     
     export_btn.click(

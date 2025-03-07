@@ -68,10 +68,13 @@ class ImageGenerator:
         try:
             client = openai.OpenAI(api_key=self.openai_api_key)
             
-            logger.info(f"Generating image with prompt: {prompt}")
+            # Add a prefix to the prompt to discourage text generation
+            enhanced_prompt = "Create an image with absolutely no text or words. " + prompt
+            
+            logger.info(f"Generating image with prompt: {enhanced_prompt}")
             response = client.images.generate(
                 model=self.config.get("model", "dall-e-3"),
-                prompt=prompt,
+                prompt=enhanced_prompt,
                 size=size,
                 quality=quality,
                 n=1
@@ -145,9 +148,12 @@ class ImageGenerator:
         
         prompt = f"""Create a widescreen digital art image for: "{title}". 
 A professional, high-quality presentation thumbnail that visually represents the following concepts: {', '.join(filtered_points)}.
-Style: Modern, clean, futuristic, with vibrant colors and professional aesthetics. 
-The image should be visually striking and suitable as a video thumbnail or presentation cover.
-No text or words should be included in the image.
+Style: Modern, clean, futuristic, with vibrant colors.
+The image should be visually striking and suitable as a video thumbnail or presentation cover without any words or text.
+
+ABSOLUTELY NO TEXT: This is a strict requirement. The image must not contain any text, words, letters, numbers, or characters of any kind. No captions, no labels, no titles, no subtitles. The image must be 100% text-free.
+
+This is the most important requirement: DO NOT include any text whatsoever in the generated image. The image should only contain visual elements, not textual elements.
 """
         
         return prompt
