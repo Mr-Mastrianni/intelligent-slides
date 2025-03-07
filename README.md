@@ -1,4 +1,4 @@
-# Content Workflow Automation Agent
+# Intelligent Slides
 
 An AI-powered tool that automates the content creation workflow, specifically for creating presentation slide decks with AI assistance.
 
