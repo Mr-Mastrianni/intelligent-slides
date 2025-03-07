@@ -1,0 +1,49 @@
+# Environment variables
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Exports and generated content
+exports/
+thumbnails/
+*.pptx
+*.html
+*.json
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Log files
+*.log
+logs/
+
+# OS specific files
+.DS_Store
+Thumbs.db
