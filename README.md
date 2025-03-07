@@ -28,10 +28,6 @@ An AI-powered tool that automates the content creation workflow, specifically fo
    ```
    python gradio_app.py
    ```
-   or
-   ```
-   streamlit run app.py
-   ```
 
 ## Workflow
 
