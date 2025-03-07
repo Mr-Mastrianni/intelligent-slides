@@ -9,6 +9,7 @@ from datetime import datetime
 # Import workflow engine
 from workflow_engine import WorkflowEngine
 from config import ANTHROPIC_API_KEY, OPENAI_API_KEY
+from style_templates import TEMPLATES
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -44,7 +45,7 @@ def set_project_title(title):
     workflow_engine.create_new_project(title)
     return f"Project '{title}' created successfully!", get_step_info()
 
-def run_brainstorming(topic, use_claude, use_claude_sonnet, use_gpt4, assumptions_text):
+def run_brainstorming(topic, use_claude_sonnet, use_gpt4, assumptions_text):
     """Run the brainstorming process using selected AI models."""
     if not topic:
         return gr.Warning("Please enter a topic"), None, None, state["current_step"], None
@@ -245,17 +246,24 @@ def generate_slides(style_template, use_ai=True, selected_model=None):
         use_ai: Whether to use AI to enhance the slide content
         selected_model: The AI model to use for enhancement (if use_ai is True)
     """
-    logging.info(f"Generating slides with template: {style_template}, use_ai: {use_ai}, model: {selected_model if use_ai else 'N/A'}")
+    logging.info(f"Generating slides with style template: {style_template}")
     
     if not state.get("outline"):
         return None, "Please create an outline first", state["current_step"]
     
-    # If no model is selected but AI is enabled, use the current selected model or default to claude-3-7
-    if use_ai and not selected_model:
-        selected_model = state.get("selected_model") or "claude-3-7"
-        logging.info(f"No model specified, using {selected_model}")
-        
     try:
+        # Get the selected model
+        if use_ai and not selected_model:
+            selected_model = state.get("selected_model")
+            if not selected_model:
+                # Default to first available model
+                models = list(state.get("brainstorming_results", {}).keys())
+                if models:
+                    selected_model = models[0]
+                else:
+                    selected_model = "gpt4"  # Default fallback
+        
+        # Generate slides
         result = workflow_engine.generate_slide_deck(
             style_template=style_template,
             use_ai=use_ai,
@@ -263,58 +271,55 @@ def generate_slides(style_template, use_ai=True, selected_model=None):
         )
         
         if result.get("status") == "success":
-            slides = result.get("slides", [])
-            state["slides"] = slides
+            # Store slides in state
+            state["slides"] = result.get("slides", [])
             state["style_template"] = style_template
-            state["current_step"] = "export"  # Set current step to export
+            state["current_step"] = "export"
             
             # Format slides for display
-            slides_text = ""
-            for i, slide in enumerate(slides):
-                slides_text += f"### Slide {i+1}: {slide.get('title', 'Untitled')}\n\n"
-                if slide.get("content"):
-                    slides_text += f"{slide['content']}\n\n"
-                
-                if slide.get("points"):
-                    for point in slide["points"]:
-                        slides_text += f"- {point}\n"
-                
-                slides_text += "\n---\n\n"
+            slides_text = format_slides_for_display(state["slides"])
             
-            # Add a note about AI enhancement
-            if use_ai:
-                slides_text = f"*Slides enhanced using {selected_model}*\n\n" + slides_text
-            
-            return slides_text, None, "export"  # Return export as the current step
+            return slides_text, f"✅ Generated {len(state['slides'])} slides with '{style_template}' style", state["current_step"]
         else:
-            return None, f"Error generating slides: {result.get('message')}", state["current_step"]
+            return None, f"❌ Error generating slides: {result.get('message', 'Unknown error')}", state["current_step"]
     
     except Exception as e:
         logging.exception(f"Error in generate_slides: {str(e)}")
         return None, f"Error generating slides: {str(e)}", state["current_step"]
 
-def export_slides(export_format, style_template):
+def format_slides_for_display(slides):
+    """Format slides for display in the UI"""
+    slides_text = ""
+    for i, slide in enumerate(slides):
+        slides_text += f"### Slide {i+1}: {slide.get('title', 'Untitled')}\n\n"
+        if slide.get("content"):
+            slides_text += f"{slide['content']}\n\n"
+        
+        if slide.get("points"):
+            for point in slide["points"]:
+                slides_text += f"- {point}\n"
+        
+        slides_text += "\n---\n\n"
+    
+    return slides_text
+
+def export_slides():
     """
-    Export slides to the selected format
+    Export slides to PowerPoint format for Google Slides import
     """
-    logging.info(f"Exporting slides with format: {export_format}, style: {style_template}")
+    logging.info("Exporting slides to PowerPoint for Google Slides")
     
     if not state.get("current_step") == "export":
-        return {"status": "error", "message": "Please generate slides first"}, None
+        return {"status": "error", "message": "Please generate slides first"}, None, False
         
     # Create an exports directory if it doesn't exist
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "exports")
     os.makedirs(output_dir, exist_ok=True)
     
     try:
-        # Update style template in state if it has changed
-        if style_template and style_template != state.get("style_template"):
-            state["style_template"] = style_template
-            # Regenerate slides with new template
-            generate_slides(style_template)
-        
+        # Export to a local file optimized for Google Slides import
         result = workflow_engine.export_slides(
-            format=export_format,
+            format="google_slides_local",
             output_dir=output_dir
         )
         
@@ -326,19 +331,25 @@ def export_slides(export_format, style_template):
             file_path = result.get("export_path")
             
             # Generate a message with a link to open the file
-            message = f"✅ Slides exported successfully to: {file_path}"
-            if export_format in ["google_slides", "html"]:
-                message += f"\n\nClick the button below to open in browser."
-                
-            return message, file_path
+            message = f"✅ PowerPoint file downloaded successfully to: {file_path}"
+            message += f"\n\nYou can now import this file into Google Slides."
+            
+            return message, file_path, False
+        elif result.get("status") == "partial_success":
+            state["export_result"] = result
+            state["export_path"] = result.get("export_path")
+            
+            file_path = result.get("export_path")
+            message = f"⚠️ {result.get('message', 'Partial success with fallback')}:\n{file_path}"
+            
+            return message, file_path, False
         else:
             error_msg = result.get("message", "Unknown error during export")
             logging.error(f"Export error: {error_msg}")
-            return f"❌ Error exporting slides: {error_msg}", None
-    
+            return f"❌ Error exporting slides: {error_msg}", None, False
     except Exception as e:
         logging.exception(f"Error in export_slides: {str(e)}")
-        return f"❌ Error: {str(e)}", None
+        return f"❌ Error: {str(e)}", None, False
 
 def open_in_browser(file_path):
     """
@@ -379,12 +390,10 @@ def on_selected_model_change(model_id):
     return model_id
 
 def update_model_dropdown(brainstorming_models):
-    if brainstorming_models and len(brainstorming_models) > 0:
-        logging.info(f"Updating model dropdown with choices: {brainstorming_models}")
-        return gr.update(choices=brainstorming_models, value=state.get("selected_model") or brainstorming_models[0])
-    else:
-        logging.info("No brainstorming models available, using default choices")
-        return gr.update(choices=["claude-3-7", "gpt4"], value=None)
+    """Update the model dropdown with available models."""
+    if not brainstorming_models:
+        return gr.update(choices=[], value=None)
+    return gr.update(choices=brainstorming_models, value=brainstorming_models[0])
 
 # Create the Gradio interface
 with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent") as app:
@@ -414,7 +423,6 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent"
                     )
                     
                     with gr.Row():
-                        use_claude = gr.Checkbox(label="Use Claude", value=False)
                         use_claude_sonnet = gr.Checkbox(label="Use Claude 3.7", value=True)
                         use_gpt4 = gr.Checkbox(label="Use GPT-4", value=True)
                     
@@ -494,23 +502,20 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent"
             
             with gr.Row():
                 with gr.Column():
-                    style_dropdown = gr.Dropdown(
-                        label="Select style template",
-                        choices=["default", "minimalist", "corporate", "creative", "academic"],
-                        value="default",
-                        interactive=True
+                    style_template = gr.Dropdown(
+                        choices=list(TEMPLATES.keys()),
+                        value="slide_deck_pro",
+                        label="Style Template"
                     )
                     
-                    use_ai_checkbox = gr.Checkbox(label="Use AI to enhance slides", value=True)
-                    
-                    model_dropdown = gr.Dropdown(
-                        label="Select AI model for slide enhancement",
-                        choices=["claude-3-7", "gpt4"],
-                        value=None,  # Set to None initially
-                        interactive=True,
-                        visible=True,
-                        allow_custom_value=True  # Allow any value to prevent errors
-                    )
+                    with gr.Row():
+                        use_ai = gr.Checkbox(value=True, label="Use AI to enhance slides")
+                        selected_model = gr.Dropdown(
+                            choices=[], 
+                            label="AI Model",
+                            interactive=True,
+                            visible=True
+                        )
                     
                     generate_slides_btn = gr.Button("Generate Slides", variant="primary")
                     slides_error = gr.Textbox(label="Errors", visible=False)
@@ -521,38 +526,19 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent"
         with gr.TabItem("4. Export"):
             gr.Markdown("### Export Your Presentation")
             
-            with gr.Row():
-                with gr.Column(scale=2):
-                    export_format = gr.Dropdown(
-                        choices=["google_slides", "powerpoint", "html", "pdf"],
-                        value="google_slides",
-                        label="Export Format"
-                    )
-                    
-                    style_template = gr.Dropdown(
-                        choices=["default", "creative", "professional", "minimal"],
-                        value="creative",
-                        label="Style Template"
-                    )
-                    
-                with gr.Column(scale=3):
-                    export_btn = gr.Button("Export Slides", variant="primary")
-                    export_status = gr.Textbox(label="Export Status", interactive=False)
-                    export_file_path = gr.State(None)
-                    open_browser_btn = gr.Button("Open in Browser", variant="secondary")
-            
-            # Connect components
-            export_btn.click(
-                fn=export_slides,
-                inputs=[export_format, style_template],
-                outputs=[export_status, export_file_path]
-            )
-            
-            open_browser_btn.click(
-                fn=open_in_browser,
-                inputs=[export_file_path],
-                outputs=[export_status]
-            )
+            with gr.Tabs() as export_tabs:
+                with gr.TabItem("Export Options"):
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            gr.Markdown("### Download your presentation")
+                            gr.Markdown("Click the button below to download a PowerPoint file (.pptx) that you can import into Google Slides.")
+                            
+                            export_btn = gr.Button("Download PowerPoint File", variant="primary", size="lg")
+                        
+                        with gr.Column(scale=2):
+                            export_result = gr.Textbox(label="Export Result", interactive=False)
+                            export_file_path = gr.Textbox(label="File Path", visible=False)
+                            open_browser_btn = gr.Button("Open in Browser", visible=False)
     
     # Set up event handlers
     create_project_btn.click(
@@ -563,7 +549,7 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent"
     
     brainstorm_btn.click(
         run_brainstorming,
-        inputs=[topic_input, use_claude, use_claude_sonnet, use_gpt4, assumptions_input],
+        inputs=[topic_input, use_claude_sonnet, use_gpt4, assumptions_input],
         outputs=[brainstorm_results, brainstorm_error, model_dropdown, current_step_info, model_dropdown]
     )
     
@@ -587,16 +573,28 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent"
     
     generate_slides_btn.click(
         generate_slides,
-        inputs=[style_dropdown, use_ai_checkbox, model_dropdown],
+        inputs=[style_template, use_ai, selected_model],
         outputs=[slides_output, slides_error, current_step_info]
     )
     
-    use_ai_checkbox.change(
+    use_ai.change(
         fn=lambda use_ai: gr.update(visible=use_ai),
-        inputs=[use_ai_checkbox],
-        outputs=[model_dropdown]
+        inputs=[use_ai],
+        outputs=[selected_model]
     )
     
+    export_btn.click(
+        export_slides,
+        inputs=[],
+        outputs=[export_result, export_file_path, open_browser_btn]
+    )
+
+    open_browser_btn.click(
+        open_in_browser,
+        inputs=[export_file_path],
+        outputs=[export_result]
+    )
+
     # Update tabs based on the current step
     def update_ui_based_on_step(step):
         if step == "brainstorming":

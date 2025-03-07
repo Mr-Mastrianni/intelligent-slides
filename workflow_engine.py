@@ -8,10 +8,12 @@ import time
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import os
+import re
 
 from ai_interface import AIInterface
 from slide_deck_generator import SlideDeckGenerator
 from image_generator import ImageGenerator
+from google_drive_uploader import GoogleDriveUploader
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -26,6 +28,10 @@ class WorkflowEngine:
         self.slide_generator = SlideDeckGenerator()
         self.image_generator = ImageGenerator()
         self.current_project = None
+        
+        # Create exports directory
+        self.export_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "exports")
+        os.makedirs(self.export_dir, exist_ok=True)
         
         # Default timeouts
         self.default_timeout = 90  # 90 seconds for workflow operations
@@ -543,16 +549,17 @@ Use a color scheme that conveys professionalism and innovation.
             logger.error(f"Error generating thumbnail: {str(e)}")
             return {"status": "error", "message": f"Error generating thumbnail: {str(e)}"}
     
-    def export_slides(self, format: str = "google_slides", output_dir: str = None) -> Dict[str, Any]:
+    def export_slides(self, format: str, output_dir: str, use_existing_filepath: str = None) -> Dict[str, Any]:
         """
-        Export the slides to the specified format.
+        Export slides to the specified format.
         
         Args:
-            format: The format to export to (google_slides, powerpoint, pdf, html)
-            output_dir: The directory to save the exported file
+            format: Format to export to (powerpoint, html, pdf, google_slides_local)
+            output_dir: Directory to save the exported file
+            use_existing_filepath: Optional path to use for the export
             
         Returns:
-            Dict with export results
+            Dict with status and export details
         """
         logger.info(f"Exporting slides to {format}")
         
@@ -568,11 +575,36 @@ Use a color scheme that conveys professionalism and innovation.
             os.makedirs(output_dir, exist_ok=True)
         
         try:
+            # Get title from project
+            title = self.current_project.get("title", "Presentation")
+            
+            # Create a safe filename
+            safe_title = re.sub(r'[^\w\-_]', '-', title.lower())
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            
+            # Create a default filepath if not provided
+            if not use_existing_filepath:
+                if format == "html":
+                    filename = f"{safe_title}_{timestamp}.html"
+                elif format in ["powerpoint", "pptx"]:
+                    filename = f"{safe_title}_{timestamp}.pptx"
+                elif format == "pdf":
+                    filename = f"{safe_title}_{timestamp}.pdf"
+                elif format == "google_slides_local":
+                    filename = f"{safe_title}_for_google_{timestamp}.pptx"
+                else:
+                    filename = f"{safe_title}_{timestamp}.html"  # Default to HTML
+                
+                filepath = os.path.join(output_dir, filename)
+            else:
+                filepath = use_existing_filepath
+            
             # Use the SlideDeckGenerator to export
             result = self.slide_generator.export_slides(
                 slides=self.current_project["slides"],
-                format=format,
-                output_dir=output_dir
+                format="google_slides" if format == "google_slides_local" else format,
+                filepath=filepath,
+                title=title
             )
             
             # Update project with export information
@@ -589,6 +621,154 @@ Use a color scheme that conveys professionalism and innovation.
         except Exception as e:
             logger.error(f"Error exporting slides: {str(e)}")
             return {"status": "error", "message": f"Error exporting slides: {str(e)}"}
+    
+    def export_slides_to_google(self, slides: List[Dict[str, Any]], title: str = None) -> Dict[str, Any]:
+        """
+        Export slides to Google Slides.
+        
+        Args:
+            slides: List of slide dictionaries
+            title: Optional title for the presentation
+        
+        Returns:
+            Dict with status and export details
+        """
+        try:
+            logger.info("Exporting slides to Google Slides")
+            
+            # Create filepath for potential fallback
+            if not title and slides and slides[0].get('title'):
+                title = slides[0].get('title')
+            
+            if not title:
+                title = f"Presentation {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            
+            # Clean title for filename
+            clean_title = re.sub(r'[^\w\s-]', '', title).strip().replace(' ', '-').lower()
+            filepath = os.path.join(self.export_dir, f"{clean_title}.pptx")
+            
+            # Use the slide_generator to export to Google Slides
+            result = self.slide_generator.export_to_google_slides(slides, filepath)
+            
+            # Check if the result is a string (URL or filepath) or a dict
+            if isinstance(result, str):
+                if "docs.google.com" in result:
+                    return {
+                        "status": "success",
+                        "message": "Successfully exported to Google Slides",
+                        "export_path": result,
+                        "export_type": "google_slides"
+                    }
+                else:
+                    return {
+                        "status": "partial_success",
+                        "message": "Exported to HTML with Google Slides styling (fallback)",
+                        "export_path": result,
+                        "export_type": "html"
+                    }
+            else:
+                return result
+                
+        except Exception as e:
+            logger.error(f"Error exporting to Google Slides: {str(e)}")
+            return {
+                "status": "error",
+                "message": f"Failed to export to Google Slides: {str(e)}",
+                "export_path": None,
+                "export_type": None
+            }
+    
+    def export_slides_to_google_drive(self, slides: List[Dict[str, Any]], title: str = None) -> Dict[str, Any]:
+        """
+        Export slides to Google Drive as PowerPoint file.
+        
+        Args:
+            slides: List of slide dictionaries
+            title: Optional title for the presentation
+        
+        Returns:
+            Dict with status and export details
+        """
+        try:
+            logger.info("Exporting slides to Google Drive")
+            
+            # Create filepath for PowerPoint file
+            if not title and slides and slides[0].get('title'):
+                title = slides[0].get('title')
+            
+            if not title:
+                title = f"Presentation {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            
+            # Clean title for filename
+            clean_title = re.sub(r'[^\w\s-]', '', title).strip().replace(' ', '-').lower()
+            filepath = os.path.join(self.export_dir, f"{clean_title}.pptx")
+            
+            # First export to PowerPoint
+            pptx_result = self.export_slides(
+                format="powerpoint",
+                output_dir=self.export_dir,
+                use_existing_filepath=filepath
+            )
+            
+            if pptx_result["status"] != "success":
+                return {
+                    "status": "error",
+                    "message": f"Failed to create PowerPoint file: {pptx_result.get('message', 'Unknown error')}",
+                    "export_path": None,
+                    "export_type": None
+                }
+            
+            # Then upload to Google Drive
+            try:
+                from google_drive_uploader import GoogleDriveUploader
+                drive_uploader = GoogleDriveUploader()
+                
+                # Upload the PowerPoint file to Google Drive
+                upload_result = drive_uploader.upload_presentation(
+                    filepath=filepath, 
+                    title=title or clean_title
+                )
+                
+                if "file_id" in upload_result and "web_view_link" in upload_result:
+                    return {
+                        "status": "success",
+                        "message": "Successfully uploaded to Google Drive",
+                        "export_path": upload_result["web_view_link"],
+                        "file_id": upload_result["file_id"],
+                        "export_type": "google_drive"
+                    }
+                else:
+                    return {
+                        "status": "error",
+                        "message": f"Upload failed: {upload_result.get('error', 'Unknown error')}",
+                        "export_path": filepath,  # Return local path as fallback
+                        "export_type": "powerpoint"
+                    }
+                    
+            except ImportError:
+                return {
+                    "status": "partial_success",
+                    "message": "GoogleDriveUploader not available. PowerPoint file created locally.",
+                    "export_path": filepath,
+                    "export_type": "powerpoint"
+                }
+            except Exception as e:
+                logger.error(f"Error uploading to Google Drive: {str(e)}")
+                return {
+                    "status": "partial_success",
+                    "message": f"PowerPoint file created but upload to Google Drive failed: {str(e)}",
+                    "export_path": filepath,
+                    "export_type": "powerpoint"
+                }
+                
+        except Exception as e:
+            logger.error(f"Error exporting to Google Drive: {str(e)}")
+            return {
+                "status": "error",
+                "message": f"Failed to export to Google Drive: {str(e)}",
+                "export_path": None,
+                "export_type": None
+            }
     
     def save_project(self, filepath: str) -> Dict[str, Any]:
         """

@@ -8,6 +8,7 @@ import json
 import os
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+import time
 
 try:
     from pptx import Presentation
@@ -16,6 +17,11 @@ try:
     from pptx.enum.text import PP_ALIGN
 except ImportError:
     logging.warning("python-pptx not installed. PowerPoint export will not be available.")
+
+from google_slides_exporter import GoogleSlidesExporter
+
+# Import style templates
+from style_templates import TEMPLATES
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -26,37 +32,7 @@ class SlideDeckGenerator:
     
     def __init__(self):
         """Initialize the slide deck generator."""
-        self.style_templates = {
-            "default": {
-                "title_font": "Arial",
-                "title_size": 40,
-                "body_font": "Arial",
-                "body_size": 20,
-                "bullet_font": "Arial",
-                "bullet_size": 18,
-                "colors": {
-                    "title": "#333333",
-                    "body": "#555555",
-                    "highlight": "#3366FF",
-                    "background": "#FFFFFF",
-                }
-            },
-            "dark": {
-                "title_font": "Arial",
-                "title_size": 40,
-                "body_font": "Arial",
-                "body_size": 20,
-                "bullet_font": "Arial",
-                "bullet_size": 18,
-                "colors": {
-                    "title": "#FFFFFF",
-                    "body": "#DDDDDD",
-                    "highlight": "#66CCFF",
-                    "background": "#222222",
-                }
-            },
-            # Add more templates as needed
-        }
+        self.style_templates = TEMPLATES
     
     def parse_outline(self, outline_text: str) -> List[Dict[str, Any]]:
         """
@@ -453,71 +429,100 @@ class SlideDeckGenerator:
         logger.info(f"Formatted {len(formatted_slides)} slides")
         return formatted_slides
     
-    def export_to_powerpoint(self, slides: List[Dict[str, Any]], title: str) -> Dict[str, Any]:
+    def export_to_powerpoint(self, slides, filepath):
         """
         Export slides to a PowerPoint presentation.
         
         Args:
             slides: The slides to export
-            title: The title of the presentation
+            filepath: Path to save the PowerPoint file
             
         Returns:
-            Dict with export results
+            Path to the exported file
         """
         try:
+            from pptx import Presentation
+            from pptx.util import Inches
+            
+            logger.info(f"PPTX DEBUG: Starting PowerPoint creation with {len(slides)} slides")
+            
             # Create a new presentation
             prs = Presentation()
+            
+            # Set slide dimensions to widescreen 16:9
+            prs.slide_width = Inches(13.33)
+            prs.slide_height = Inches(7.5)
+            
+            # Get title from first slide
+            title = "Presentation"
+            if slides and "title" in slides[0]:
+                title = slides[0]["title"]
+            
+            logger.info(f"PPTX DEBUG: Creating presentation with title: {title}")
             
             # Add a title slide
             title_slide_layout = prs.slide_layouts[0]
             slide = prs.slides.add_slide(title_slide_layout)
             title_shape = slide.shapes.title
             subtitle_shape = slide.placeholders[1]
-            
             title_shape.text = title
             subtitle_shape.text = f"Created on {datetime.now().strftime('%Y-%m-%d')}"
             
-            # Add content slides
-            for slide_data in slides:
-                content_slide_layout = prs.slide_layouts[1]
-                slide = prs.slides.add_slide(content_slide_layout)
+            logger.info("PPTX DEBUG: Title slide created")
+            
+            # Create slides (process one by one for better debugging)
+            for i, slide_data in enumerate(slides):
+                logger.info(f"PPTX DEBUG: Processing slide {i+1}/{len(slides)}")
                 
-                # Add title
-                title_shape = slide.shapes.title
-                title_shape.text = slide_data["title"]
+                # Choose an appropriate layout
+                layout_index = 1  # Default: Title and Content
+                content_slide_layout = prs.slide_layouts[layout_index]
                 
-                # Add content
-                content = slide_data.get("content", "")
-                points = slide_data.get("points", [])
-                
-                body_shape = slide.placeholders[1]
-                tf = body_shape.text_frame
-                
-                if content:
-                    p = tf.paragraphs[0]
-                    p.text = content
+                try:
+                    # Add the slide
+                    slide = prs.slides.add_slide(content_slide_layout)
                     
-                # Add bullet points
-                for point in points:
-                    p = tf.add_paragraph()
-                    p.text = re.sub(r'\*\*(.*?)\*\*', r'\1', point)  # Remove markdown bold
-                    p.level = 1
+                    # Add title if available
+                    if slide.shapes.title:
+                        slide.shapes.title.text = slide_data.get("title", f"Slide {i+1}")
+                    
+                    # Add content if placeholder exists
+                    if len(slide.placeholders) > 1:
+                        content = slide_data.get("content", "")
+                        points = slide_data.get("points", [])
+                        
+                        body_shape = slide.placeholders[1]
+                        tf = body_shape.text_frame
+                        
+                        # Add main content
+                        if content:
+                            p = tf.paragraphs[0] if tf.paragraphs else tf.add_paragraph()
+                            p.text = content
+                        
+                        # Add bullet points
+                        for point in points:
+                            p = tf.add_paragraph()
+                            p.text = re.sub(r'\*\*(.*?)\*\*', r'\1', point)  # Remove markdown
+                            p.level = 1
+                    
+                    logger.info(f"PPTX DEBUG: Slide {i+1} created successfully")
+                except Exception as e:
+                    logger.error(f"PPTX DEBUG: Error creating slide {i+1}: {str(e)}")
+                    continue  # Continue with next slide even if this one fails
             
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+            
+            logger.info(f"PPTX DEBUG: Saving presentation to {filepath}")
             # Save the presentation
-            filename = f"{title.replace(' ', '_').lower()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pptx"
-            filepath = os.path.join(os.getcwd(), filename)
             prs.save(filepath)
+            logger.info(f"PPTX DEBUG: Presentation saved successfully with {len(slides) + 1} slides")
             
-            logger.info(f"Exported PowerPoint presentation to {filepath}")
-            return {
-                "filepath": filepath,
-                "filename": filename,
-                "slide_count": len(slides) + 1  # +1 for title slide
-            }
-            
+            return filepath
         except Exception as e:
-            logger.error(f"Error exporting to PowerPoint: {str(e)}")
-            return {"error": str(e)}
+            logger.error(f"PPTX DEBUG: Fatal error in PowerPoint export: {str(e)}")
+            logger.exception("Detailed PowerPoint export error:")
+            raise
     
     def export_to_html(self, slides: List[Dict[str, Any]], filepath: str, style_template: str = "default") -> str:
         """
@@ -738,6 +743,57 @@ class SlideDeckGenerator:
     
     def export_to_google_slides(self, slides: List[Dict[str, Any]], filepath: str) -> str:
         """
+        Export slides to Google Slides.
+        
+        Args:
+            slides: List of slide dictionaries
+            filepath: Path to save the file (used as fallback)
+            
+        Returns:
+            URL to the Google Slides presentation or path to local HTML file as fallback
+        """
+        logger.info("Exporting to Google Slides")
+        
+        try:
+            # Try to use Google Slides API integration
+            google_slides_exporter = GoogleSlidesExporter(
+                credentials_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'credentials.json'),
+                token_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'token.pickle')
+            )
+            
+            # Get title from first slide or filename
+            title = None
+            if slides and slides[0].get("title"):
+                title = slides[0].get("title")
+            else:
+                # Extract title from filepath
+                basename = os.path.basename(filepath)
+                title = os.path.splitext(basename)[0].replace('-', ' ').title()
+            
+            # Export using Google Slides API
+            result = google_slides_exporter.export_slides(slides, title)
+            
+            if result.get("status") == "success":
+                logger.info(f"Successfully exported to Google Slides: {result.get('presentation_url')}")
+                return result.get("presentation_url")
+            else:
+                logger.warning(f"Google Slides export failed: {result.get('message')}. Using HTML fallback.")
+        except Exception as e:
+            logger.warning(f"Error exporting to Google Slides: {str(e)}. Using HTML fallback.")
+        
+        # Fallback to HTML export if Google Slides export fails
+        logger.info("Using HTML export with Google Slides styling as fallback")
+        
+        # Change file extension to .html
+        if filepath.endswith('.pptx'):
+            filepath = filepath.replace('.pptx', '.html')
+        elif not filepath.endswith('.html'):
+            filepath += '.html'
+        
+        return self.export_to_html(slides, filepath, style_template="google")
+    
+    def export_to_google_slides_html(self, slides: List[Dict[str, Any]], filepath: str) -> str:
+        """
         Export to a format that resembles Google Slides (saves as HTML with Google Slides styling).
         
         Args:
@@ -758,76 +814,197 @@ class SlideDeckGenerator:
         
         return self.export_to_html(slides, filepath, style_template="google")
     
-    def export_slides(self, slides: List[Dict[str, Any]], format: str, output_dir: str) -> Dict[str, Any]:
+    def export_for_google_slides(self, slides, filepath=None):
         """
-        Export slides to the specified format.
+        Export slides in a format optimized for Google Slides import.
+        Google Slides can import PowerPoint files (.pptx), so we'll create a simplified version
+        that's more likely to import correctly.
         
         Args:
             slides: List of slide dictionaries
-            format: Format to export to ("google_slides", "powerpoint", "pdf", "html")
-            output_dir: Directory to save the exported file
+            filepath: Path to save the file (will default to a timestamped file if not provided)
             
         Returns:
-            Dict with export results
+            Dict with status and export path
         """
-        # Create output directory if it doesn't exist
-        os.makedirs(output_dir, exist_ok=True)
+        logger.info("Starting export optimized for Google Slides import")
         
-        # Generate filename based on first slide title or current timestamp
-        if slides and slides[0].get("title"):
-            # Clean the title to be a valid filename
-            title = re.sub(r'[^\w\s-]', '', slides[0].get("title"))
-            title = re.sub(r'[-\s]+', '-', title).strip('-_').lower()
-            filename = f"{title}"
-        else:
-            filename = f"presentation_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # Create a default filepath if not provided
+        if not filepath:
+            # Get title from first slide
+            title = "Presentation"
+            if slides and "title" in slides[0]:
+                title = slides[0]["title"]
+            
+            # Create a safe filename
+            safe_title = re.sub(r'[^\w\-_]', '-', title.lower())
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"{safe_title}_for_google_slides_{timestamp}.pptx"
+            
+            # Create export directory if it doesn't exist
+            export_dir = os.path.join(os.getcwd(), "exports")
+            os.makedirs(export_dir, exist_ok=True)
+            
+            filepath = os.path.join(export_dir, filename)
         
         try:
-            if format == "google_slides":
-                # Google Slides-like HTML
-                filepath = os.path.join(output_dir, f"{filename}.html")
-                export_path = self.export_to_google_slides(slides, filepath)
-                return {"status": "success", "export_path": export_path, "format": "google_slides (HTML)"}
+            from pptx import Presentation
+            from pptx.util import Inches
             
-            elif format == "powerpoint":
-                # Export to PowerPoint
-                filepath = os.path.join(output_dir, f"{filename}.pptx")
-                if "Presentation" in globals():
-                    export_path = self.export_to_powerpoint(slides, filepath)
-                    return {"status": "success", "export_path": export_path, "format": "powerpoint"}
-                else:
-                    logger.warning("python-pptx not installed. Using HTML export instead.")
-                    filepath = os.path.join(output_dir, f"{filename}.html")
-                    export_path = self.export_to_html(slides, filepath)
-                    return {
-                        "status": "success", 
-                        "export_path": export_path, 
-                        "format": "html (powerpoint unavailable)",
-                        "message": "python-pptx not installed. Exported as HTML instead."
-                    }
+            logger.info(f"Creating simplified PowerPoint for Google Slides import: {filepath}")
             
-            elif format == "pdf":
-                # For PDF, we need a converter (not implemented here)
-                # Fallback to HTML
-                logger.warning("PDF export not implemented. Using HTML export instead.")
-                filepath = os.path.join(output_dir, f"{filename}.html")
-                export_path = self.export_to_html(slides, filepath)
+            # Create a new presentation with minimal formatting
+            prs = Presentation()
+            
+            # Set slide dimensions to widescreen 16:9 (Google Slides default)
+            prs.slide_width = Inches(13.33)
+            prs.slide_height = Inches(7.5)
+            
+            # Add a title slide
+            title_slide_layout = prs.slide_layouts[0]
+            slide = prs.slides.add_slide(title_slide_layout)
+            
+            # Add title and subtitle
+            if slide.shapes.title:
+                title_text = "Presentation"
+                if slides and "title" in slides[0]:
+                    title_text = slides[0]["title"]
+                slide.shapes.title.text = title_text
+            
+            if len(slide.placeholders) > 1:
+                subtitle = slide.placeholders[1]
+                subtitle.text = f"Created on {datetime.now().strftime('%Y-%m-%d')}"
+            
+            # Add content slides with minimal formatting
+            for i, slide_data in enumerate(slides):
+                # Use a simple layout (Title and Content)
+                content_slide_layout = prs.slide_layouts[1]
+                slide = prs.slides.add_slide(content_slide_layout)
+                
+                # Add title
+                if slide.shapes.title:
+                    slide.shapes.title.text = slide_data.get("title", f"Slide {i+1}")
+                
+                # Add content as bullet points
+                if len(slide.placeholders) > 1:
+                    content = slide_data.get("content", "")
+                    points = slide_data.get("points", [])
+                    
+                    body_shape = slide.placeholders[1]
+                    tf = body_shape.text_frame
+                    
+                    # Add main content as introduction
+                    if content:
+                        p = tf.paragraphs[0] if tf.paragraphs else tf.add_paragraph()
+                        p.text = content
+                    
+                    # Add bullet points with minimal formatting
+                    for point in points:
+                        p = tf.add_paragraph()
+                        # Remove any markdown formatting
+                        clean_point = re.sub(r'\*\*(.*?)\*\*', r'\1', point)
+                        p.text = clean_point
+                        p.level = 1
+            
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+            
+            # Save the presentation
+            prs.save(filepath)
+            logger.info(f"Successfully created PowerPoint for Google Slides import: {filepath}")
+            
+            return {
+                "status": "success", 
+                "export_path": filepath, 
+                "format": "powerpoint_for_google",
+                "message": "Created PowerPoint file optimized for Google Slides import"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error creating PowerPoint for Google Slides: {str(e)}")
+            logger.exception("Detailed error:")
+            
+            # Fall back to HTML if PowerPoint export fails
+            html_filepath = filepath.replace('.pptx', '.html')
+            try:
+                export_path = self.export_to_html(slides, html_filepath)
                 return {
-                    "status": "success", 
+                    "status": "partial_success", 
                     "export_path": export_path, 
-                    "format": "html (pdf unavailable)",
-                    "message": "PDF export not implemented. Exported as HTML instead."
+                    "format": "html (fallback)",
+                    "message": f"PowerPoint export failed: {str(e)}. Created HTML file instead which can be manually copied into Google Slides."
                 }
+            except Exception as html_error:
+                return {
+                    "status": "error",
+                    "message": f"Failed to create PowerPoint for Google Slides: {str(e)}. HTML fallback also failed: {str(html_error)}"
+                }
+    
+    def export_slides(self, slides, format="html", filepath=None, title=None):
+        logger.info(f"EXPORT DEBUG: Starting export process with format={format}")
+        logger.info(f"EXPORT DEBUG: Filepath provided: {filepath}")
+        
+        # Generate a default title from the first slide if not provided
+        if not title and slides and "title" in slides[0]:
+            title = slides[0]["title"]
+        elif not title:
+            title = "Slide_Deck"
+        
+        # Create default filename if not provided
+        if not filepath:
+            safe_title = re.sub(r'[^\w\-_]', '-', title.lower())
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"{safe_title}_{timestamp}"
             
-            elif format == "html":
-                # Export to HTML
-                filepath = os.path.join(output_dir, f"{filename}.html")
+            if format == "html":
+                filename = f"{filename}.html"
+            elif format in ["powerpoint", "pptx"]:
+                filename = f"{filename}.pptx"
+            elif format == "pdf":
+                filename = f"{filename}.pdf"
+            elif format == "google_slides" or format == "google_slides_local":
+                filename = f"{filename}_for_google.pptx"
+            
+            # Create export directory if it doesn't exist
+            export_dir = os.path.join(os.getcwd(), "exports")
+            os.makedirs(export_dir, exist_ok=True)
+            
+            filepath = os.path.join(export_dir, filename)
+        
+        logger.info(f"EXPORT DEBUG: Final filepath: {filepath}")
+        
+        # Continue with export based on format
+        if format == "google_slides" or format == "google_slides_local":
+            # Use the specialized Google Slides export
+            return self.export_for_google_slides(slides, filepath)
+        elif format == "powerpoint" or format == "pptx":
+            try:
+                logger.info("EXPORT DEBUG: Attempting PowerPoint export")
+                if "Presentation" not in globals():
+                    logger.info("EXPORT DEBUG: Checking for python-pptx")
+                    import importlib.util
+                    spec = importlib.util.find_spec("pptx")
+                    if spec is None:
+                        logger.warning("EXPORT DEBUG: python-pptx not found, defaulting to HTML")
+                        # Fall back to HTML if pptx not available
+                        return self.export_slides(slides, "html", filepath)
+                
+                logger.info(f"EXPORT DEBUG: PowerPoint export - slides: {len(slides)}, filepath: {filepath}")
+                # Export to PowerPoint
+                export_path = self.export_to_powerpoint(slides, filepath)
+                logger.info(f"EXPORT DEBUG: PowerPoint export complete, path: {export_path}")
+                return {"status": "success", "export_path": export_path, "format": "powerpoint"}
+            except Exception as e:
+                logger.error(f"EXPORT DEBUG: PowerPoint export failed with error: {str(e)}")
+                logger.exception("Detailed error:")
+                return {"status": "error", "message": f"PowerPoint export error: {str(e)}"}
+        elif format == "html":
+            try:
                 export_path = self.export_to_html(slides, filepath)
                 return {"status": "success", "export_path": export_path, "format": "html"}
-            
-            else:
-                return {"status": "error", "message": f"Unsupported export format: {format}"}
-                
-        except Exception as e:
-            logger.error(f"Error exporting slides: {str(e)}")
-            return {"status": "error", "message": f"Error exporting slides: {str(e)}"}
+            except Exception as e:
+                logger.error(f"EXPORT DEBUG: HTML export failed with error: {str(e)}")
+                return {"status": "error", "message": f"HTML export error: {str(e)}"}
+        else:
+            logger.error(f"EXPORT DEBUG: Unsupported format: {format}")
+            return {"status": "error", "message": f"Unsupported format: {format}"}
