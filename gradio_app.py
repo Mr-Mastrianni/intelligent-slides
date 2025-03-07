@@ -49,7 +49,7 @@ def run_brainstorming(topic, use_claude, use_claude_sonnet, use_gpt4, assumption
     if not topic:
         return gr.Warning("Please enter a topic"), None, None, state["current_step"], None
     
-    if not (use_claude or use_claude_sonnet or use_gpt4):
+    if not (use_claude_sonnet or use_gpt4):
         return gr.Warning("Please select at least one AI model"), None, None, state["current_step"], None
     
     # Parse assumptions
@@ -57,10 +57,8 @@ def run_brainstorming(topic, use_claude, use_claude_sonnet, use_gpt4, assumption
     
     # Create models list
     models = []
-    if use_claude:
-        models.append("claude")
     if use_claude_sonnet:
-        models.append("claude-sonnet")
+        models.append("claude-3-7")
     if use_gpt4:
         models.append("gpt4")
     
@@ -252,9 +250,9 @@ def generate_slides(style_template, use_ai=True, selected_model=None):
     if not state.get("outline"):
         return None, "Please create an outline first", state["current_step"]
     
-    # If no model is selected but AI is enabled, use the current selected model or default to claude-sonnet
+    # If no model is selected but AI is enabled, use the current selected model or default to claude-3-7
     if use_ai and not selected_model:
-        selected_model = state.get("selected_model") or "claude-sonnet"
+        selected_model = state.get("selected_model") or "claude-3-7"
         logging.info(f"No model specified, using {selected_model}")
         
     try:
@@ -386,7 +384,7 @@ def update_model_dropdown(brainstorming_models):
         return gr.update(choices=brainstorming_models, value=state.get("selected_model") or brainstorming_models[0])
     else:
         logging.info("No brainstorming models available, using default choices")
-        return gr.update(choices=["claude", "claude-sonnet", "gpt4"], value=None)
+        return gr.update(choices=["claude-3-7", "gpt4"], value=None)
 
 # Create the Gradio interface
 with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent") as app:
@@ -416,8 +414,8 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent"
                     )
                     
                     with gr.Row():
-                        use_claude = gr.Checkbox(label="Use Claude", value=True)
-                        use_claude_sonnet = gr.Checkbox(label="Use Claude 3.7 Sonnet", value=True)
+                        use_claude = gr.Checkbox(label="Use Claude", value=False)
+                        use_claude_sonnet = gr.Checkbox(label="Use Claude 3.7", value=True)
                         use_gpt4 = gr.Checkbox(label="Use GPT-4", value=True)
                     
                     assumptions_input = gr.Textbox(
@@ -442,7 +440,7 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent"
                         with gr.Column():
                             model_dropdown = gr.Dropdown(
                                 label="Select model for outline generation",
-                                choices=[],
+                                choices=["claude-3-7", "gpt4"],
                                 interactive=True,
                                 allow_custom_value=True,
                                 multiselect=False  # Ensure only one model can be selected
@@ -507,7 +505,7 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent"
                     
                     model_dropdown = gr.Dropdown(
                         label="Select AI model for slide enhancement",
-                        choices=["claude", "claude-sonnet", "gpt4"],
+                        choices=["claude-3-7", "gpt4"],
                         value=None,  # Set to None initially
                         interactive=True,
                         visible=True,

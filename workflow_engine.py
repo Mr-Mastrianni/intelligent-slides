@@ -172,7 +172,7 @@ class WorkflowEngine:
         errors = []
         
         # For each model, run the brainstorming
-        for model_id in ["claude", "gpt4"]:
+        for model_id in ["claude-3-7", "gpt4"]:
             try:
                 result = self.run_brainstorming(
                     topic=topic,
@@ -252,7 +252,7 @@ Format the outline in a clean, hierarchical structure using markdown.
             
             try:
                 response = self.ai.get_completion(
-                    model_id="claude",  # Always use Claude for outline generation
+                    model_id="claude-3-7",  # Use Claude 3.7 for outline generation
                     prompt=prompt,
                     system_prompt=system_prompt,
                     timeout=timeout or self.default_timeout

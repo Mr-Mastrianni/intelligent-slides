@@ -6,8 +6,7 @@ An AI-powered tool that automates the content creation workflow, specifically fo
 
 - Streamlined idea-to-presentation workflow
 - Multi-model AI integration:
-  - Anthropic Claude
-  - Claude 3.7 Sonnet (New!)
+  - Claude 3.7 Sonnet
   - OpenAI GPT-4
 - Intelligent slide content generation with AI enhancement
 - Contextually relevant point generation

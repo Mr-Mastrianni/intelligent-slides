@@ -14,14 +14,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # Model configurations
 AI_MODELS = {
-    "claude": {
-        "name": "Claude",
-        "provider": "anthropic",
-        "model": "claude-3-opus-20240229",
-        "temperature": 0.7,
-        "max_tokens": 4000,
-    },
-    "claude-sonnet": {
+    "claude-3-7": {
         "name": "Claude 3.7 Sonnet",
         "provider": "anthropic",
         "model": "claude-3-7-sonnet-20250219",
