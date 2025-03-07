@@ -28,8 +28,23 @@ state = {
     "current_step": "brainstorming",
     "style_template": None,
     "export_result": None,
-    "export_path": None
+    "export_path": None,
+    "selected_assumptions": []
 }
+
+# Define example assumptions
+EXAMPLE_ASSUMPTIONS = [
+    "Post-Labor Economics: Traditional employment will be fundamentally transformed by AI and automation, requiring new economic models.",
+    "Cognitive Hyper-Abundance: AI systems will create an unprecedented abundance of cognitive resources and intellectual capital.",
+    "Principal-Agent Dynamics: The relationship between humans and AI systems will increasingly follow principal-agent frameworks with complex alignment challenges.",
+    "Robotic Abundance: Physical automation and robotics will create material abundance while disrupting traditional labor markets.",
+    "Property Primacy: Ownership of AI systems and data will become the primary determinant of economic power and wealth distribution.",
+    "Persistent Scarcities: Despite technological abundance, certain resources (attention, trust, status, physical space) will remain scarce.",
+    "Exponential Knowledge Creation: AI systems will accelerate knowledge creation at exponential rates, outpacing human capacity to absorb information.",
+    "Decentralized Coordination: New coordination mechanisms will emerge to manage complex systems and resource allocation in post-scarcity domains.",
+    "Value Alignment Challenges: Ensuring AI systems reflect human values will become increasingly complex as systems gain autonomy.",
+    "Status Competition Shift: Human status competition will shift from material wealth to domains AI cannot easily replicate (creativity, relationships, experiences)."
+]
 
 def check_api_keys():
     """Check if API keys are set."""
@@ -45,7 +60,7 @@ def set_project_title(title):
     workflow_engine.create_new_project(title)
     return f"Project '{title}' created successfully!", get_step_info()
 
-def run_brainstorming(topic, use_claude_sonnet, use_gpt4, assumptions_text):
+def run_brainstorming(topic, use_claude_sonnet, use_gpt4, selected_assumptions, custom_assumptions_text=""):
     """Run the brainstorming process using selected AI models."""
     if not topic:
         return gr.Warning("Please enter a topic"), None, None, state["current_step"], None
@@ -53,8 +68,18 @@ def run_brainstorming(topic, use_claude_sonnet, use_gpt4, assumptions_text):
     if not (use_claude_sonnet or use_gpt4):
         return gr.Warning("Please select at least one AI model"), None, None, state["current_step"], None
     
-    # Parse assumptions
-    assumptions = [a.strip() for a in assumptions_text.split("\n") if a.strip()]
+    # Get assumptions from selected assumptions
+    assumptions = []
+    if selected_assumptions:
+        for idx in selected_assumptions:
+            # Extract the index number from the selection (format: "1. Assumption text")
+            index = int(idx.split(".")[0]) - 1
+            assumptions.append(EXAMPLE_ASSUMPTIONS[index])
+    
+    # Parse custom assumptions
+    if custom_assumptions_text:
+        custom_assumptions = [a.strip() for a in custom_assumptions_text.split("\n") if a.strip()]
+        assumptions.extend(custom_assumptions)
     
     # Create models list
     models = []
@@ -423,10 +448,21 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent"
                         use_claude_sonnet = gr.Checkbox(label="Use Claude 3.7", value=True)
                         use_gpt4 = gr.Checkbox(label="Use GPT-4", value=True)
                     
+                    gr.Markdown("### Select up to 4 assumptions (optional)")
+                    
+                    selected_assumptions = gr.Dropdown(
+                        choices=[f"{i+1}. {assumption}" for i, assumption in enumerate(EXAMPLE_ASSUMPTIONS)],
+                        label="Example Assumptions",
+                        info="Select up to 4 assumptions to guide the brainstorming process",
+                        multiselect=True,
+                        max_choices=4,
+                        value=[]
+                    )
+                    
                     assumptions_input = gr.Textbox(
-                        label="Assumptions (Optional, one per line)",
-                        placeholder="Enter any assumptions, one per line",
-                        lines=4
+                        label="Custom Assumptions (Optional, one per line)",
+                        placeholder="Enter any additional custom assumptions, one per line",
+                        lines=2
                     )
                     
                     brainstorm_btn = gr.Button("Start Brainstorming", variant="primary")
@@ -537,7 +573,7 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Content Workflow Automation Agent"
     
     brainstorm_btn.click(
         run_brainstorming,
-        inputs=[topic_input, use_claude_sonnet, use_gpt4, assumptions_input],
+        inputs=[topic_input, use_claude_sonnet, use_gpt4, selected_assumptions, assumptions_input],
         outputs=[brainstorm_results, brainstorm_error, model_dropdown, current_step_info, model_dropdown]
     )
     
